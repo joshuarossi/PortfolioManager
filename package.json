@@ -1,0 +1,15 @@
+{
+  "name": "portfolio-manager",
+  "private": true,
+  "workspaces": ["server", "client"],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"bun run --filter server dev\" \"bun run --filter client dev\"",
+    "build": "bun run --filter client build && bun run --filter server build",
+    "start": "bun run --filter server start",
+    "db:generate": "bun run --filter server db:generate",
+    "db:migrate": "bun run --filter server db:migrate"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
