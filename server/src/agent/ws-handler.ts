@@ -62,18 +62,32 @@ function textFromContent(content: unknown): string {
     .join("\n");
 }
 
+const VISIBLE_TOOL_RESULTS = new Set([
+  "navigate_app",
+  "spotlight_ui",
+  "propose_portfolio_trades",
+]);
+
+function chatRole(message: Record<string, unknown>): ChatMessage["role"] {
+  const raw = message.role;
+  if (raw === "user") return "user";
+  if (raw === "assistant") return "assistant";
+  if (raw === "tool" || raw === "toolResult") return "tool";
+  return "system";
+}
+
 export function toChatMessages(messages: unknown[]): ChatMessage[] {
   return messages.flatMap((message, index) => {
     if (!message || typeof message !== "object" || !("role" in message)) return [];
-    const role =
-      message.role === "user"
-        ? "user"
-        : message.role === "assistant"
-          ? "assistant"
-          : message.role === "tool"
-            ? "tool"
-            : "system";
-    const text = textFromContent("content" in message ? message.content : undefined).trim();
+    const record = message as Record<string, unknown>;
+
+    if (record.role === "toolResult") {
+      const toolName = typeof record.toolName === "string" ? record.toolName : "";
+      if (!VISIBLE_TOOL_RESULTS.has(toolName)) return [];
+    }
+
+    const role = chatRole(record);
+    const text = textFromContent("content" in record ? record.content : undefined).trim();
     if (!text) return [];
     return [{ id: `history-${index}`, role, text } satisfies ChatMessage];
   });
@@ -133,9 +147,12 @@ export async function createAgentConnection(ws: ServerWs, clientId: string): Pro
   });
 
   connection.session = result.session;
-  connection.unsubscribe = connection.session.subscribe((event) =>
-    send(ws, { type: "event", event }),
-  );
+  connection.unsubscribe = connection.session.subscribe((event) => {
+    send(ws, { type: "event", event });
+    if (event.type === "agent_end") {
+      send(ws, { type: "history", messages: toChatMessages(connection.session.messages) });
+    }
+  });
 
   send(ws, {
     type: "ready",
