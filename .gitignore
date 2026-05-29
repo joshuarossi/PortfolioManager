@@ -4,5 +4,8 @@ dist/
 .env.local
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
+*.tsbuildinfo
 .DS_Store
 .portfolio-manager/
