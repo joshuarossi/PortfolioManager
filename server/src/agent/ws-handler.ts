@@ -70,7 +70,9 @@ export function toChatMessages(messages: unknown[]): ChatMessage[] {
         ? "user"
         : message.role === "assistant"
           ? "assistant"
-          : "system";
+          : message.role === "tool"
+            ? "tool"
+            : "system";
     const text = textFromContent("content" in message ? message.content : undefined).trim();
     if (!text) return [];
     return [{ id: `history-${index}`, role, text } satisfies ChatMessage];

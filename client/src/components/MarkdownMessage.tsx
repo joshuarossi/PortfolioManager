@@ -4,7 +4,7 @@ import clsx from "clsx";
 
 interface MarkdownMessageProps {
   content: string;
-  variant?: "assistant" | "user" | "system";
+  variant?: "assistant" | "user" | "system" | "tool";
 }
 
 export function MarkdownMessage({ content, variant = "assistant" }: MarkdownMessageProps) {
@@ -17,6 +17,7 @@ export function MarkdownMessage({ content, variant = "assistant" }: MarkdownMess
       className={clsx(
         "markdown-body text-sm leading-relaxed",
         variant === "system" && "text-loss",
+        variant === "tool" && "text-gray-300",
       )}
     >
       <ReactMarkdown
@@ -53,13 +54,27 @@ export function MarkdownMessage({ content, variant = "assistant" }: MarkdownMess
             const isBlock = className?.includes("language-");
             if (isBlock) {
               return (
-                <code className="block overflow-x-auto rounded-lg bg-surface px-3 py-2 font-mono text-xs text-gray-200">
+                <code
+                  className={clsx(
+                    "block overflow-x-auto rounded-lg px-3 py-2 font-mono text-xs",
+                    variant === "tool"
+                      ? "bg-surface/80 text-indigo-200/90"
+                      : "bg-surface text-gray-200",
+                  )}
+                >
                   {children}
                 </code>
               );
             }
             return (
-              <code className="rounded bg-surface px-1.5 py-0.5 font-mono text-xs text-accent-hover">
+              <code
+                className={clsx(
+                  "rounded px-1.5 py-0.5 font-mono text-xs",
+                  variant === "tool"
+                    ? "bg-surface/80 text-indigo-200/90"
+                    : "bg-surface text-accent-hover",
+                )}
+              >
                 {children}
               </code>
             );

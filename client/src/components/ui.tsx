@@ -6,11 +6,23 @@ interface StatCardProps {
   sub?: string;
   trend?: "up" | "down" | "neutral";
   icon?: React.ReactNode;
+  /** Stable id for agent spotlight (data-ui-spotlight) */
+  spotlightId?: string;
 }
 
-export function StatCard({ label, value, sub, trend, icon }: StatCardProps) {
+export function StatCard({ label, value, sub, trend, icon, spotlightId }: StatCardProps) {
+  const uiLabel = [label, sub].filter(Boolean).join(" · ");
+
   return (
-    <div className="card animate-slide-up">
+    <div
+      className="card animate-slide-up"
+      {...(spotlightId
+        ? {
+            "data-ui-spotlight": spotlightId,
+            "data-ui-label": uiLabel,
+          }
+        : {})}
+    >
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-wider text-gray-500">{label}</p>

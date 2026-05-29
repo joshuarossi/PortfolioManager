@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import type { TradeProposalPayload } from "../lib/api";
+import { listUiCapabilities } from "../lib/ui-catalog";
+import { captureUiSnapshot } from "../lib/ui-snapshot";
+import type { SpotlightRequest } from "../lib/resolve-spotlight";
 
 export type ChatMessage = {
   id: string;
@@ -19,6 +22,8 @@ type ServerMessage =
   | ({ type: "ready" } & AgentInfo)
   | { type: "history"; messages: ChatMessage[] }
   | { type: "trade_proposal"; proposal: TradeProposalPayload }
+  | { type: "ui_navigate"; route: string }
+  | ({ type: "ui_spotlight" } & SpotlightRequest)
   | {
       type: "event";
       event: {
@@ -41,10 +46,14 @@ function getClientId(): string {
 }
 
 function buildAppContext(pathname: string) {
+  const uiSnapshot =
+    typeof document !== "undefined" ? captureUiSnapshot(pathname) : { route: pathname, capturedAt: "", elements: [] };
+
   return {
     page: pathname === "/" ? "dashboard" : pathname.replace(/^\//, ""),
     route: pathname,
     app: "Portfolio Manager",
+    uiSnapshot,
     capabilities: {
       exchanges: ["bitfinex", "hyperliquid"],
       trading: { bitfinex: true, hyperliquid: false, requiresApproval: true },
@@ -53,14 +62,26 @@ function buildAppContext(pathname: string) {
         "get_portfolio_insights",
         "get_connected_exchanges",
         "get_current_app_context",
+        "navigate_app",
+        "spotlight_ui",
         "propose_portfolio_trades",
       ],
+      ui: listUiCapabilities(),
     },
   };
 }
 
-export function usePiAgent() {
+export type PiAgentOptions = {
+  onNavigate?: (route: string) => void;
+  onSpotlight?: (payload: SpotlightRequest) => void;
+};
+
+export function usePiAgent(options: PiAgentOptions = {}) {
   const location = useLocation();
+  const onNavigateRef = useRef(options.onNavigate);
+  const onSpotlightRef = useRef(options.onSpotlight);
+  onNavigateRef.current = options.onNavigate;
+  onSpotlightRef.current = options.onSpotlight;
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState("Connecting…");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -132,6 +153,17 @@ export function usePiAgent() {
         return;
       }
 
+      if (message.type === "ui_navigate") {
+        onNavigateRef.current?.(message.route);
+        return;
+      }
+
+      if (message.type === "ui_spotlight") {
+        const { type: _t, ...spotlightPayload } = message;
+        void onSpotlightRef.current?.(spotlightPayload);
+        return;
+      }
+
       if (message.type === "error") {
         setMessages((current) => [
           ...current,
@@ -174,7 +206,11 @@ export function usePiAgent() {
                 ? "Analyzing insights…"
                 : event.toolName === "propose_portfolio_trades"
                   ? "Building trade proposal…"
-                  : `Running ${event.toolName ?? "tool"}…`,
+                  : event.toolName === "navigate_app"
+                    ? "Navigating…"
+                    : event.toolName === "spotlight_ui"
+                      ? "Highlighting UI…"
+                      : `Running ${event.toolName ?? "tool"}…`,
           );
           setStatus("Working…");
           break;
@@ -195,9 +231,17 @@ export function usePiAgent() {
   }, [wsUrl, sendContext]);
 
   useEffect(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      sendContext(wsRef.current);
-    }
+    const ws = wsRef.current;
+    if (ws?.readyState !== WebSocket.OPEN) return;
+
+    sendContext(ws);
+    const delayed = window.setTimeout(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        sendContext(wsRef.current);
+      }
+    }, 450);
+
+    return () => window.clearTimeout(delayed);
   }, [location.pathname, sendContext]);
 
   const sendPrompt = useCallback(
@@ -246,3 +290,5 @@ export function usePiAgent() {
     dismissProposal,
   };
 }
+
+export type UsePiAgentResult = ReturnType<typeof usePiAgent>;

@@ -140,7 +140,11 @@ export default function ExchangesPage() {
             Connect CEX API keys or a Web3 wallet for DEX portfolio tracking
           </p>
         </div>
-        <button onClick={() => setShowForm(true)} className="btn-primary">
+        <button
+          onClick={() => setShowForm(true)}
+          className="btn-primary"
+          data-spotlight="add-exchange"
+        >
           <Plus className="h-4 w-4" />
           Add Exchange
         </button>
@@ -363,6 +367,7 @@ export default function ExchangesPage() {
                     onClick={() => handleSync(exchange.id)}
                     disabled={syncing === exchange.id}
                     className="btn-secondary"
+                    data-spotlight="exchange-sync"
                   >
                     <RefreshCw
                       className={`h-4 w-4 ${syncing === exchange.id ? "animate-spin" : ""}`}

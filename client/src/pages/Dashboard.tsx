@@ -77,7 +77,13 @@ export default function Dashboard() {
               : "Connect an exchange to get started"}
           </p>
         </div>
-        <button onClick={handleSync} disabled={syncing} className="btn-primary">
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="btn-primary"
+          data-spotlight="sync-all"
+          data-ui-label="Sync All"
+        >
           <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
           {syncing ? "Syncing..." : "Sync All"}
         </button>
@@ -85,6 +91,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
+          spotlightId="stat-total-value"
           label="Total Portfolio Value"
           value={formatUsd(portfolio?.totalUsdValue ?? 0)}
           sub={
@@ -96,18 +103,21 @@ export default function Dashboard() {
           icon={<DollarSign className="h-5 w-5" />}
         />
         <StatCard
+          spotlightId="stat-assets"
           label="Assets"
           value={String(currencies)}
           sub="Unique currencies"
           icon={<Coins className="h-5 w-5" />}
         />
         <StatCard
+          spotlightId="stat-exchanges"
           label="Exchanges"
           value={String(exchanges)}
           sub="Connected accounts"
           icon={<Building2 className="h-5 w-5" />}
         />
         <StatCard
+          spotlightId="stat-wallets"
           label="Wallets"
           value={String(portfolio?.wallets.length ?? 0)}
           sub="Active balances"

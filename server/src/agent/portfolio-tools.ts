@@ -5,6 +5,7 @@ import { getInsights } from "../services/ai";
 import { createProposal, type ProposedTrade } from "../services/trading";
 import { db } from "../db";
 import { exchanges } from "../db/schema";
+import { listUiCapabilities, resolveRoute } from "./ui-catalog";
 
 export type TradeProposalPayload = {
   proposalId: string;
@@ -14,7 +15,20 @@ export type TradeProposalPayload = {
   expiresAt: number;
 };
 
-type NotifyFn = (payload: { type: "trade_proposal"; proposal: TradeProposalPayload }) => void;
+type NotifyFn = (
+  payload:
+    | { type: "trade_proposal"; proposal: TradeProposalPayload }
+    | { type: "ui_navigate"; route: string }
+    | {
+        type: "ui_spotlight";
+        ref?: string;
+        label?: string;
+        selector?: string;
+        target?: string;
+        message?: string;
+        route?: string;
+      },
+) => void;
 
 export function createPortfolioTools(getAppContext: () => unknown, clientId: string, notify: NotifyFn) {
   const getPortfolioSummary = defineTool({
@@ -76,12 +90,127 @@ export function createPortfolioTools(getAppContext: () => unknown, clientId: str
     name: "get_current_app_context",
     label: "Get Current App Context",
     description:
-      "Returns the current browser UI context: active page, route, and any filters or selections the user has open.",
+      "Returns the current browser UI context: route, uiSnapshot (interactive elements with ref, label, selector), and capabilities. Call before spotlight_ui to pick the correct ref or label.",
     parameters: Type.Object({}),
     execute: async () => ({
       content: [{ type: "text", text: JSON.stringify(getAppContext(), null, 2) }],
       details: { context: getAppContext() },
     }),
+  });
+
+  const navigateApp = defineTool({
+    name: "navigate_app",
+    label: "Navigate App",
+    description:
+      "Navigate the user's browser to an app page. Use when they ask to be taken somewhere (e.g. add exchange, portfolio, dashboard). Pass route (e.g. /exchanges) or page key (dashboard, portfolio, exchanges, assistant). Does not highlight UI — use spotlight_ui separately if needed.",
+    parameters: Type.Object({
+      route: Type.Optional(
+        Type.String({ description: "Path e.g. /exchanges, /portfolio, /, /assistant" }),
+      ),
+      page: Type.Optional(
+        Type.String({
+          description: "Page key: dashboard, portfolio, exchanges, assistant",
+        }),
+      ),
+    }),
+    execute: async (_toolCallId, params) => {
+      const resolved = resolveRoute(params.route ?? params.page ?? "");
+      if (!resolved) {
+        const caps = listUiCapabilities();
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Unknown route or page. Valid pages: ${Object.keys(caps.routes).join(", ")}. Valid paths: ${Object.values(caps.routes).join(", ")}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+      notify({ type: "ui_navigate", route: resolved });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Navigating the user to ${resolved}. They can see the page now; use spotlight_ui if you need to point at a specific control.`,
+          },
+        ],
+        details: { route: resolved },
+      };
+    },
+  });
+
+  const spotlightUi = defineTool({
+    name: "spotlight_ui",
+    label: "Spotlight UI",
+    description:
+      "Highlight any visible UI element with a short spotlight (auto-dismisses). Call get_current_app_context first — uiSnapshot.elements lists interactive controls AND stat/region cards (kind: region) with ref, label, spotlightId. Prefer ref; or label e.g. 'Connected accounts', 'Exchanges', 'Total Portfolio Value'; or target/spotlightId e.g. stat-exchanges. Optional route navigates first (use / for dashboard).",
+    parameters: Type.Object({
+      ref: Type.Optional(
+        Type.String({
+          description: "Element ref from uiSnapshot.elements[].ref (preferred)",
+        }),
+      ),
+      label: Type.Optional(
+        Type.String({
+          description: "Visible label/text to match, e.g. Add Exchange, Sync",
+        }),
+      ),
+      selector: Type.Optional(
+        Type.String({ description: "CSS selector when ref/label unknown" }),
+      ),
+      target: Type.Optional(
+        Type.String({
+          description: "data-spotlight or data-ui-spotlight id e.g. stat-exchanges, sync-all, add-exchange",
+        }),
+      ),
+      route: Type.Optional(
+        Type.String({ description: "Navigate to this path before highlighting" }),
+      ),
+      message: Type.Optional(
+        Type.String({ description: "Short hint shown in the spotlight popover" }),
+      ),
+    }),
+    execute: async (_toolCallId, params) => {
+      const hasLocator =
+        !!params.ref?.trim() ||
+        !!params.label?.trim() ||
+        !!params.selector?.trim() ||
+        !!params.target?.trim();
+      if (!hasLocator) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Provide at least one of: ref (from uiSnapshot), label, selector, or target.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      notify({
+        type: "ui_spotlight",
+        ref: params.ref,
+        label: params.label,
+        selector: params.selector,
+        target: params.target,
+        route: params.route,
+        message: params.message,
+      });
+
+      const desc =
+        params.ref ?? params.label ?? params.selector ?? params.target ?? "element";
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Highlighting ${desc}${params.message ? `: ${params.message}` : ""}. Spotlight fades after a few seconds.`,
+          },
+        ],
+        details: { ...params },
+      };
+    },
   });
 
   const proposePortfolioTrades = defineTool({
@@ -146,6 +275,8 @@ export function createPortfolioTools(getAppContext: () => unknown, clientId: str
       getPortfolioInsights,
       getConnectedExchanges,
       getCurrentAppContext,
+      navigateApp,
+      spotlightUi,
       proposePortfolioTrades,
     ],
     toolNames: [
@@ -153,6 +284,8 @@ export function createPortfolioTools(getAppContext: () => unknown, clientId: str
       "get_portfolio_insights",
       "get_connected_exchanges",
       "get_current_app_context",
+      "navigate_app",
+      "spotlight_ui",
       "propose_portfolio_trades",
     ] as const,
   };
@@ -168,6 +301,12 @@ Your job:
 - Never recommend specific price targets; use market orders unless user asks for limits
 - Explain rationale for each proposed trade
 - Hyperliquid is read-only for now — only propose trades on Bitfinex (check tradable: true)
+
+In-app UI guidance (floating assistant is always available):
+- navigate_app: when the user wants to go somewhere — pass page key or route path
+- spotlight_ui: when pointing at any control or dashboard stat card — get_current_app_context first; use ref, label (e.g. Connected accounts), or target (stat-exchanges); route / for dashboard stats row
+- navigate_app and spotlight_ui are independent — use one, both, or neither
+- Do not use UI tools for pure data questions
 
 Optimization workflow:
 1. get_portfolio_summary + get_portfolio_insights + get_connected_exchanges

@@ -1,0 +1,65 @@
+{
+  "routes": {
+    "dashboard": "/",
+    "portfolio": "/portfolio",
+    "exchanges": "/exchanges",
+    "assistant": "/assistant"
+  },
+  "spotlights": {
+    "nav-dashboard": {
+      "route": "/",
+      "selector": "[data-spotlight=\"nav-dashboard\"]",
+      "label": "Dashboard"
+    },
+    "nav-portfolio": {
+      "route": "/portfolio",
+      "selector": "[data-spotlight=\"nav-portfolio\"]",
+      "label": "Portfolio"
+    },
+    "nav-exchanges": {
+      "route": "/exchanges",
+      "selector": "[data-spotlight=\"nav-exchanges\"]",
+      "label": "Exchanges"
+    },
+    "nav-assistant": {
+      "route": "/assistant",
+      "selector": "[data-spotlight=\"nav-assistant\"]",
+      "label": "AI Assistant"
+    },
+    "sync-all": {
+      "route": "/",
+      "selector": "[data-spotlight=\"sync-all\"]",
+      "label": "Sync All"
+    },
+    "stat-total-value": {
+      "route": "/",
+      "selector": "[data-ui-spotlight=\"stat-total-value\"]",
+      "label": "Total Portfolio Value"
+    },
+    "stat-assets": {
+      "route": "/",
+      "selector": "[data-ui-spotlight=\"stat-assets\"]",
+      "label": "Assets · Unique currencies"
+    },
+    "stat-exchanges": {
+      "route": "/",
+      "selector": "[data-ui-spotlight=\"stat-exchanges\"]",
+      "label": "Exchanges · Connected accounts"
+    },
+    "stat-wallets": {
+      "route": "/",
+      "selector": "[data-ui-spotlight=\"stat-wallets\"]",
+      "label": "Wallets · Active balances"
+    },
+    "add-exchange": {
+      "route": "/exchanges",
+      "selector": "[data-spotlight=\"add-exchange\"]",
+      "label": "Add Exchange"
+    },
+    "exchange-sync": {
+      "route": "/exchanges",
+      "selector": "[data-spotlight=\"exchange-sync\"]",
+      "label": "Sync exchange"
+    }
+  }
+}

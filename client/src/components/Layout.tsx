@@ -9,10 +9,10 @@ import {
 import clsx from "clsx";
 
 const nav = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/portfolio", label: "Portfolio", icon: Wallet },
-  { to: "/exchanges", label: "Exchanges", icon: Link2 },
-  { to: "/assistant", label: "AI Assistant", icon: Sparkles },
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, spotlight: "nav-dashboard" },
+  { to: "/portfolio", label: "Portfolio", icon: Wallet, spotlight: "nav-portfolio" },
+  { to: "/exchanges", label: "Exchanges", icon: Link2, spotlight: "nav-exchanges" },
+  { to: "/assistant", label: "AI Assistant", icon: Sparkles, spotlight: "nav-assistant" },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -30,11 +30,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="flex-1 space-y-1 px-3 py-4">
-          {nav.map(({ to, label, icon: Icon }) => (
+          {nav.map(({ to, label, icon: Icon, spotlight }) => (
             <NavLink
               key={to}
               to={to}
               end={to === "/"}
+              data-spotlight={spotlight}
               className={({ isActive }) =>
                 clsx(
                   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",

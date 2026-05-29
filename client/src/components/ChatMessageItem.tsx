@@ -64,7 +64,9 @@ export const ChatMessageItem = memo(function ChatMessageItem({
             ? "bg-accent text-white"
             : message.role === "system"
               ? "bg-loss/10 text-loss border border-loss/30"
-              : "bg-surface-overlay text-gray-200 border border-surface-border",
+              : message.role === "tool"
+                ? "border border-accent/25 bg-accent/10 text-gray-300"
+                : "bg-surface-overlay text-gray-200 border border-surface-border",
           showPlainStream && "border-accent/20",
         )}
       >
@@ -72,6 +74,8 @@ export const ChatMessageItem = memo(function ChatMessageItem({
           <div className="whitespace-pre-wrap">{message.text}</div>
         ) : message.role === "system" ? (
           <MarkdownMessage content={message.text} variant="system" />
+        ) : message.role === "tool" ? (
+          <MarkdownMessage content={message.text} variant="tool" />
         ) : showPlainStream ? (
           <div className="whitespace-pre-wrap break-words text-gray-200">
             {displayed}
