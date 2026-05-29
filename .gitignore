@@ -6,6 +6,8 @@ dist/
 *.db-journal
 *.db-wal
 *.db-shm
+server/data/
+.debug/
 *.tsbuildinfo
 .DS_Store
 .portfolio-manager/
