@@ -46,7 +46,7 @@ async function infoRequest<T>(body: Record<string, unknown>): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function fetchAllMids(): Promise<Map<string, number>> {
+export async function fetchAllMids(): Promise<Map<string, number>> {
   const mids = await infoRequest<Record<string, string>>({ type: "allMids" });
   const prices = new Map<string, number>();
   for (const [coin, price] of Object.entries(mids)) {

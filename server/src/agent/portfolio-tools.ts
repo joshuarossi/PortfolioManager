@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { getLatestPortfolio } from "../services/portfolio";
 import { getInsights } from "../services/ai";
+import { getMarketPrices } from "../services/market";
 import { createProposal, type ProposedTrade } from "../services/trading";
 import { db } from "../db";
 import { exchanges } from "../db/schema";
@@ -213,11 +214,37 @@ export function createPortfolioTools(getAppContext: () => unknown, clientId: str
     },
   });
 
+  const getMarketPricesTool = defineTool({
+    name: "get_market_prices",
+    label: "Get Market Prices",
+    description:
+      "Returns live USD prices for crypto symbols from WebSocket feeds (Hyperliquid + Bitfinex). Defaults to portfolio holdings plus BTC/ETH. Use before rebalancing to reason about current market levels.",
+    parameters: Type.Object({
+      symbols: Type.Optional(
+        Type.Array(Type.String(), {
+          description: "Symbols to quote e.g. BTC, ETH, SOL. Omit to use portfolio holdings.",
+        }),
+      ),
+    }),
+    execute: async (_toolCallId, params) => {
+      let symbols = params.symbols?.map((s) => s.toUpperCase());
+      if (!symbols?.length) {
+        const portfolio = await getLatestPortfolio();
+        symbols = [...new Set([...Object.keys(portfolio.byCurrency), "BTC", "ETH"])];
+      }
+      const result = await getMarketPrices(symbols);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        details: { market: result },
+      };
+    },
+  });
+
   const proposePortfolioTrades = defineTool({
     name: "propose_portfolio_trades",
     label: "Propose Portfolio Trades",
     description:
-      "Propose a rebalancing plan as specific Bitfinex market/limit orders. The user must approve in the UI before any order executes. Call get_portfolio_summary and get_portfolio_insights first. Use exchangeId from get_connected_exchanges (Bitfinex only). Symbol format: BTCUSD, ETHUSD, etc. Amount is in base asset (e.g. BTC amount for BTCUSD).",
+      "Propose a rebalancing plan as specific Bitfinex market/limit orders. The user must approve in the UI before any order executes. Call get_portfolio_summary and get_portfolio_insights first. Use exchangeId from get_connected_exchanges (Bitfinex only). Symbol can be base asset only (BTC, ETH) or a pair — the server auto-picks UST vs USD from wallet balances. Amount is in base asset units.",
     parameters: Type.Object({
       summary: Type.String({ description: "Short human-readable summary of the optimization plan" }),
       targetAllocation: Type.Optional(
@@ -228,7 +255,7 @@ export function createPortfolioTools(getAppContext: () => unknown, clientId: str
       trades: Type.Array(
         Type.Object({
           exchangeId: Type.String(),
-          symbol: Type.String({ description: "Trading pair e.g. BTCUSD" }),
+          symbol: Type.String({ description: "Base asset or pair e.g. BTC, ETH, BTCUSD — quote currency resolved automatically" }),
           side: Type.Union([Type.Literal("buy"), Type.Literal("sell")]),
           amount: Type.Number({ description: "Base asset quantity, must be positive" }),
           orderType: Type.Optional(Type.Union([Type.Literal("market"), Type.Literal("limit")])),
@@ -273,6 +300,7 @@ export function createPortfolioTools(getAppContext: () => unknown, clientId: str
     tools: [
       getPortfolioSummary,
       getPortfolioInsights,
+      getMarketPricesTool,
       getConnectedExchanges,
       getCurrentAppContext,
       navigateApp,
@@ -282,6 +310,7 @@ export function createPortfolioTools(getAppContext: () => unknown, clientId: str
     toolNames: [
       "get_portfolio_summary",
       "get_portfolio_insights",
+      "get_market_prices",
       "get_connected_exchanges",
       "get_current_app_context",
       "navigate_app",
@@ -300,7 +329,9 @@ Your job:
 - Be concise, actionable, and risk-aware
 - Never recommend specific price targets; use market orders unless user asks for limits
 - Explain rationale for each proposed trade
+- Live market prices are available via get_market_prices (WebSocket-fed, updated continuously)
 - Hyperliquid is read-only for now — only propose trades on Bitfinex (check tradable: true)
+- Bitfinex spot uses EXCHANGE MARKET orders. Quote currency (UST vs wire USD) is chosen automatically from wallet balances — use base symbols like BTC or ETH in proposals
 
 In-app UI guidance (floating assistant is always available):
 - navigate_app: when the user wants to go somewhere — pass page key or route path
@@ -309,7 +340,7 @@ In-app UI guidance (floating assistant is always available):
 - Do not use UI tools for pure data questions
 
 Optimization workflow:
-1. get_portfolio_summary + get_portfolio_insights + get_connected_exchanges
+1. get_portfolio_summary + get_portfolio_insights + get_market_prices + get_connected_exchanges
 2. Identify concentration, stablecoin drift, or user-stated targets
 3. Calculate specific buy/sell amounts in base asset units
 4. propose_portfolio_trades with clear summary — wait for user approval

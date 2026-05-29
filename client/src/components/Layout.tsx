@@ -7,6 +7,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import clsx from "clsx";
+import PriceTicker from "./PriceTicker";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, spotlight: "nav-dashboard" },
@@ -56,9 +57,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <main className="ml-64 flex-1">
-        <div className="mx-auto max-w-7xl px-8 py-8 animate-fade-in">{children}</div>
-      </main>
+      <div className="ml-64 flex min-h-screen flex-1 flex-col">
+        <PriceTicker />
+        <main className="flex-1">
+          <div className="mx-auto max-w-7xl px-8 py-8 animate-fade-in">{children}</div>
+        </main>
+      </div>
     </div>
   );
 }

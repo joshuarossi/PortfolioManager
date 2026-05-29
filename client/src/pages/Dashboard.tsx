@@ -1,47 +1,46 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { RefreshCw, DollarSign, Coins, Building2, ArrowRight } from "lucide-react";
-import { api, formatUsd, formatRelativeTime, type PortfolioSummary, type AiInsight } from "../lib/api";
+import { RefreshCw, DollarSign, Coins, Building2, ArrowRight, TrendingUp } from "lucide-react";
+import { api, formatUsd, formatRelativeTime, type AiInsight, type PortfolioPnl, type PnlHistoryPoint } from "../lib/api";
 import { StatCard, Badge, LoadingSpinner } from "../components/ui";
-import { PortfolioChart, AllocationChart } from "../components/PortfolioChart";
+import { PnlChart, AllocationChart } from "../components/PortfolioChart";
+import { useLivePortfolio } from "../hooks/useLivePortfolio";
 
 export default function Dashboard() {
-  const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
-  const [history, setHistory] = useState<{ date: string; totalUsdValue: number }[]>([]);
+  const { portfolio, loading, setPortfolio } = useLivePortfolio();
+  const [pnlHistory, setPnlHistory] = useState<PnlHistoryPoint[]>([]);
   const [insights, setInsights] = useState<AiInsight[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [pnl, setPnl] = useState<PortfolioPnl | null>(null);
   const [syncing, setSyncing] = useState(false);
 
-  const load = useCallback(async () => {
+  const loadMeta = useCallback(async () => {
     try {
-      const [p, h, i] = await Promise.all([
-        api.getPortfolio(),
-        api.getPortfolioHistory(30),
+      const [{ pnl: pnlData, history }, insights] = await Promise.all([
+        api.getPortfolioPnlDashboard(30),
         api.getInsights(),
       ]);
-      setPortfolio(p);
-      setHistory(h);
-      setInsights(i.filter((ins) => ins.severity !== "low" || ins.type === "info").slice(0, 4));
+      setPnlHistory(history);
+      setInsights(insights.filter((ins) => ins.severity !== "low" || ins.type === "info").slice(0, 4));
+      setPnl(pnlData);
     } catch (err) {
       console.error(err);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    void loadMeta();
+  }, [loadMeta]);
 
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const { portfolio: p } = await api.syncAll();
-      setPortfolio(p);
-      const h = await api.getPortfolioHistory(30);
-      setHistory(h);
-      const i = await api.getInsights();
-      setInsights(i.filter((ins) => ins.severity !== "low" || ins.type === "info").slice(0, 4));
+      const { portfolio: synced } = await api.syncAll();
+      setPortfolio(synced);
+      const { pnl: pnlData, history } = await api.getPortfolioPnlDashboard(30);
+      setPnlHistory(history);
+      const insights = await api.getInsights();
+      setInsights(insights.filter((ins) => ins.severity !== "low" || ins.type === "info").slice(0, 4));
+      setPnl(pnlData);
     } catch (err) {
       console.error(err);
     } finally {
@@ -57,14 +56,18 @@ export default function Dashboard() {
     .map(([name, v]) => ({ name, value: v.usdValue }))
     .sort((a, b) => b.value - a.value);
 
-  const change =
-    history.length >= 2
-      ? history[history.length - 1].totalUsdValue - history[0].totalUsdValue
-      : 0;
-  const changePct =
-    history.length >= 2 && history[0].totalUsdValue > 0
-      ? (change / history[0].totalUsdValue) * 100
-      : 0;
+  const displayPnl =
+    pnl && portfolio
+      ? {
+          ...pnl,
+          currentValue: portfolio.totalUsdValue,
+          pnl: portfolio.totalUsdValue - pnl.netDeposits,
+          pnlPercent:
+            pnl.netDeposits > 1
+              ? ((portfolio.totalUsdValue - pnl.netDeposits) / pnl.netDeposits) * 100
+              : pnl.pnlPercent,
+        }
+      : pnl;
 
   return (
     <div className="space-y-8">
@@ -73,7 +76,9 @@ export default function Dashboard() {
           <h2 className="text-2xl font-semibold text-gray-100">Dashboard</h2>
           <p className="mt-1 text-sm text-gray-500">
             {portfolio?.lastUpdated
-              ? `Last updated ${formatRelativeTime(portfolio.lastUpdated)}`
+              ? `Balances synced ${formatRelativeTime(portfolio.lastUpdated)}${
+                  portfolio.pricesAsOf ? ` · prices live (${formatRelativeTime(portfolio.pricesAsOf)})` : ""
+                }`
               : "Connect an exchange to get started"}
           </p>
         </div>
@@ -89,18 +94,31 @@ export default function Dashboard() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <StatCard
           spotlightId="stat-total-value"
           label="Total Portfolio Value"
           value={formatUsd(portfolio?.totalUsdValue ?? 0)}
           sub={
-            history.length >= 2
-              ? `${change >= 0 ? "+" : ""}${formatUsd(change)} (${changePct >= 0 ? "+" : ""}${changePct.toFixed(1)}%) 30d`
+            displayPnl
+              ? `Net deposits ${formatUsd(displayPnl.netDeposits)}`
               : undefined
           }
-          trend={change > 0 ? "up" : change < 0 ? "down" : "neutral"}
           icon={<DollarSign className="h-5 w-5" />}
+        />
+        <StatCard
+          spotlightId="stat-pnl"
+          label="PnL"
+          value={displayPnl ? formatUsd(displayPnl.pnl) : "—"}
+          sub={
+            displayPnl
+              ? displayPnl.pnlPercent != null
+                ? `${displayPnl.pnlPercent >= 0 ? "+" : ""}${displayPnl.pnlPercent.toFixed(1)}%`
+                : undefined
+              : "Connect Bitfinex for deposit/withdraw history"
+          }
+          trend={displayPnl ? (displayPnl.pnl > 0 ? "up" : displayPnl.pnl < 0 ? "down" : "neutral") : "neutral"}
+          icon={<TrendingUp className="h-5 w-5" />}
         />
         <StatCard
           spotlightId="stat-assets"
@@ -126,8 +144,8 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="card lg:col-span-2">
-          <h3 className="mb-4 text-sm font-medium text-gray-300">Portfolio Value (30 days)</h3>
-          <PortfolioChart data={history} />
+          <h3 className="mb-4 text-sm font-medium text-gray-300">PnL (30 days)</h3>
+          <PnlChart data={pnlHistory} />
         </div>
 
         <div className="card">

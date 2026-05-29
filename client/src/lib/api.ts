@@ -26,11 +26,24 @@ export interface PortfolioSummary {
   byCurrency: Record<string, { balance: number; usdValue: number }>;
   byExchange: Record<string, { usdValue: number; walletCount: number }>;
   lastUpdated: string | null;
+  pricesAsOf: string | null;
 }
 
 export interface PortfolioHistoryPoint {
   date: string;
   totalUsdValue: number;
+}
+
+export interface PnlHistoryPoint {
+  date: string;
+  portfolioValue: number;
+  netDeposits: number;
+  pnl: number;
+}
+
+export interface PortfolioPnlDashboard {
+  pnl: PortfolioPnl;
+  history: PnlHistoryPoint[];
 }
 
 export interface AiInsight {
@@ -45,6 +58,31 @@ export interface AiStatus {
   available: boolean;
   model: string | null;
   providers: string[];
+}
+
+export interface MarketQuote {
+  last: number;
+  bid: number;
+  ask: number;
+  volume: number;
+}
+
+export interface MarketPricesResult {
+  prices: Record<string, number>;
+  quotes: Record<string, MarketQuote>;
+  fetchedAt: string;
+  symbols: string[];
+  source: "websocket" | "rest";
+}
+
+export interface PortfolioPnl {
+  currentValue: number;
+  depositsUsd: number;
+  withdrawsUsd: number;
+  netDeposits: number;
+  pnl: number;
+  pnlPercent: number | null;
+  sources: string[];
 }
 
 export interface ProposedTrade {
@@ -86,6 +124,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   getPortfolio: () => request<PortfolioSummary>("/api/portfolio"),
+  getPortfolioPnl: () => request<PortfolioPnl>("/api/portfolio/pnl"),
+  getPortfolioPnlDashboard: (days = 30) =>
+    request<PortfolioPnlDashboard>(`/api/portfolio/pnl/dashboard?days=${days}`),
+  getPnlHistory: (days = 30) =>
+    request<PnlHistoryPoint[]>(`/api/portfolio/pnl/history?days=${days}`),
   getPortfolioHistory: (days = 30) =>
     request<PortfolioHistoryPoint[]>(`/api/portfolio/history?days=${days}`),
   syncAll: () =>
@@ -122,6 +165,12 @@ export const api = {
 
   getInsights: () => request<AiInsight[]>("/api/ai/insights"),
   getAiStatus: () => request<AiStatus>("/api/ai/status"),
+  getMarketPrices: (symbols?: string[]) =>
+    request<MarketPricesResult>(
+      symbols?.length
+        ? `/api/market/prices?symbols=${encodeURIComponent(symbols.join(","))}`
+        : "/api/market/prices",
+    ),
 
   executeTradeProposal: (proposalId: string, clientId: string) =>
     request<{ success: boolean; results: TradeExecutionResult[]; portfolio: PortfolioSummary }>(

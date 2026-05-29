@@ -60,6 +60,7 @@ function buildAppContext(pathname: string) {
       assistantTools: [
         "get_portfolio_summary",
         "get_portfolio_insights",
+        "get_market_prices",
         "get_connected_exchanges",
         "get_current_app_context",
         "navigate_app",

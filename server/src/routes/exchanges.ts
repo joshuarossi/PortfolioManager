@@ -10,6 +10,8 @@ import {
   maskAddress,
 } from "../services/wallet";
 import { syncExchange } from "../services/portfolio";
+import { triggerSync } from "../services/sync-scheduler";
+import { disconnectExchange, refreshBitfinexAccountStreams } from "../services/bitfinex-account-stream";
 import { eq } from "drizzle-orm";
 import { getAddress } from "viem";
 
@@ -95,6 +97,9 @@ app.post("/", async (c) => {
       })
       .returning();
 
+    void triggerSync("New exchange sync").catch(() => {});
+    void refreshBitfinexAccountStreams().catch(() => {});
+
     return c.json(formatExchange(created), 201);
   }
 
@@ -141,6 +146,8 @@ app.post("/", async (c) => {
       })
       .returning();
 
+    void triggerSync("New exchange sync").catch(() => {});
+
     return c.json(formatExchange(created), 201);
   }
 
@@ -175,6 +182,7 @@ app.post("/:id/sync", async (c) => {
 
 app.delete("/:id", async (c) => {
   const id = c.req.param("id");
+  disconnectExchange(id);
   await db.delete(exchanges).where(eq(exchanges.id, id));
   return c.json({ success: true });
 });
@@ -188,6 +196,7 @@ app.patch("/:id", async (c) => {
   if (body.isActive != null) updates.isActive = body.isActive;
 
   await db.update(exchanges).set(updates).where(eq(exchanges.id, id));
+  void refreshBitfinexAccountStreams().catch(() => {});
   return c.json({ success: true });
 });
 

@@ -1,31 +1,28 @@
 import { useEffect, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
-import { api, formatUsd, type PortfolioSummary, type Exchange } from "../lib/api";
+import { api, formatUsd, type Exchange } from "../lib/api";
 import { Badge, LoadingSpinner, EmptyState } from "../components/ui";
 import { Link } from "react-router-dom";
+import { useLivePortfolio } from "../hooks/useLivePortfolio";
 
 export default function PortfolioPage() {
-  const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
+  const { portfolio, loading, refresh, setPortfolio } = useLivePortfolio();
   const [connectedExchanges, setConnectedExchanges] = useState<Exchange[]>([]);
-  const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [filter, setFilter] = useState<string>("all");
 
-  const load = useCallback(async () => {
+  const loadExchanges = useCallback(async () => {
     try {
-      const [p, exchanges] = await Promise.all([api.getPortfolio(), api.getExchanges()]);
-      setPortfolio(p);
+      const exchanges = await api.getExchanges();
       setConnectedExchanges(exchanges.filter((e) => e.isActive));
     } catch (err) {
       console.error(err);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    void loadExchanges();
+  }, [loadExchanges]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -86,9 +83,10 @@ export default function PortfolioPage() {
           <h2 className="text-2xl font-semibold text-gray-100">Portfolio</h2>
           <p className="mt-1 text-sm text-gray-500">
             Total value: {formatUsd(portfolio.totalUsdValue)}
+            {portfolio.pricesAsOf ? ` · prices live` : ""}
           </p>
         </div>
-        <button onClick={load} className="btn-secondary">
+        <button onClick={() => void refresh()} className="btn-secondary">
           <RefreshCw className="h-4 w-4" />
           Refresh
         </button>

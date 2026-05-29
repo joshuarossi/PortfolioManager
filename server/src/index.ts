@@ -5,7 +5,11 @@ import exchangeRoutes from "./routes/exchanges";
 import portfolioRoutes from "./routes/portfolio";
 import aiRoutes from "./routes/ai";
 import tradeRoutes from "./routes/trades";
-import { syncAllExchanges } from "./services/portfolio";
+import marketRoutes from "./routes/market";
+import { startSyncScheduler } from "./services/sync-scheduler";
+import { registerMarketClient, startMarketStream, watchSymbols } from "./services/market-stream";
+import { startBitfinexAccountStreams } from "./services/bitfinex-account-stream";
+import { getLatestPortfolio } from "./services/portfolio";
 import {
   createAgentConnection,
   disposeAgentConnection,
@@ -32,23 +36,20 @@ app.route("/api/exchanges", exchangeRoutes);
 app.route("/api/portfolio", portfolioRoutes);
 app.route("/api/ai", aiRoutes);
 app.route("/api/trades", tradeRoutes);
+app.route("/api/market", marketRoutes);
 
 const port = Number(process.env.PORT ?? 3001);
 
-const SYNC_INTERVAL_MS = 15 * 60 * 1000;
-setInterval(async () => {
-  try {
-    await syncAllExchanges();
-    console.log(`[${new Date().toISOString()}] Background sync complete`);
-  } catch (err) {
-    console.error("Background sync failed:", err);
-  }
-}, SYNC_INTERVAL_MS);
+startSyncScheduler();
+void startMarketStream().then(async () => {
+  const portfolio = await getLatestPortfolio();
+  watchSymbols(Object.keys(portfolio.byCurrency));
+  await startBitfinexAccountStreams();
+});
 
-interface WsData {
-  clientId: string;
-  connection?: AgentConnection;
-}
+type WsData =
+  | { kind: "agent"; clientId: string; connection?: AgentConnection }
+  | { kind: "market"; unregister?: () => void };
 
 console.log(`Portfolio Manager API running on http://localhost:${port}`);
 
@@ -58,7 +59,12 @@ export default {
     const url = new URL(req.url);
     if (url.pathname === "/api/agent") {
       const clientId = getClientId(req.url);
-      const upgraded = server.upgrade(req, { data: { clientId } });
+      const upgraded = server.upgrade(req, { data: { kind: "agent", clientId } });
+      if (upgraded) return undefined;
+      return new Response("WebSocket upgrade failed", { status: 500 });
+    }
+    if (url.pathname === "/api/market/ws") {
+      const upgraded = server.upgrade(req, { data: { kind: "market" } });
       if (upgraded) return undefined;
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
@@ -66,6 +72,13 @@ export default {
   },
   websocket: {
     async open(ws: Bun.ServerWebSocket<WsData>) {
+      if (ws.data.kind === "market") {
+        ws.data.unregister = registerMarketClient({
+          send: (data) => ws.send(data),
+        });
+        return;
+      }
+
       try {
         const connection = await createAgentConnection(
           {
@@ -86,6 +99,8 @@ export default {
       }
     },
     async message(ws: Bun.ServerWebSocket<WsData>, message: string | Buffer) {
+      if (ws.data.kind === "market") return;
+
       const connection = ws.data.connection;
       if (!connection) return;
       try {
@@ -101,6 +116,10 @@ export default {
       }
     },
     close(ws: Bun.ServerWebSocket<WsData>) {
+      if (ws.data.kind === "market") {
+        ws.data.unregister?.();
+        return;
+      }
       if (ws.data.connection) {
         disposeAgentConnection(ws.data.connection);
         ws.data.connection = undefined;

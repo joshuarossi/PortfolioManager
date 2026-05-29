@@ -43,11 +43,11 @@ function maxUsdPerOrder(): number {
   return Number.isFinite(n) && n > 0 ? n : 25_000;
 }
 
-function normalizeSymbol(symbol: string): string {
+function normalizeSymbol(symbol: string, quote: "USD" | "UST" = "USD"): string {
   const s = symbol.toUpperCase().replace(/^T/, "");
   if (s.startsWith("T") && s.length > 1) return s;
-  if (s.endsWith("USD") || s.endsWith("UST")) return `t${s}`;
-  return `t${s}USD`;
+  if (s.endsWith("USD") || s.endsWith("UST") || s.endsWith("USDT")) return `t${s}`;
+  return `t${s}${quote}`;
 }
 
 function baseCurrency(symbol: string): string {
@@ -55,16 +55,87 @@ function baseCurrency(symbol: string): string {
   return s.replace(/USD$|UST$|USDT$/, "");
 }
 
-export async function validateTrades(trades: ProposedTrade[]): Promise<void> {
+function quoteCurrency(symbol: string): string {
+  const s = symbol.replace(/^t/i, "").toUpperCase();
+  if (s.endsWith("UST")) return "UST";
+  if (s.endsWith("USDT")) return "USDT";
+  if (s.endsWith("USD")) return "USD";
+  return "USD";
+}
+
+function quoteBalance(
+  portfolio: Awaited<ReturnType<typeof getLatestPortfolio>>,
+  exchangeId: string,
+  quote: string,
+): number {
+  return portfolio.wallets
+    .filter((w) => w.exchangeId === exchangeId && w.currency === quote)
+    .reduce((sum, w) => sum + (w.availableBalance ?? w.balance), 0);
+}
+
+function preferredQuote(
+  portfolio: Awaited<ReturnType<typeof getLatestPortfolio>>,
+  exchangeId: string,
+): "USD" | "UST" {
+  const usd = quoteBalance(portfolio, exchangeId, "USD");
+  const ust = quoteBalance(portfolio, exchangeId, "UST");
+  if (ust > 0.01 && usd < 0.01) return "UST";
+  if (usd > 0.01 && ust < 0.01) return "USD";
+  return ust >= usd ? "UST" : "USD";
+}
+
+function resolveBitfinexSymbol(
+  symbol: string,
+  portfolio: Awaited<ReturnType<typeof getLatestPortfolio>>,
+  exchangeId: string,
+): string {
+  const upper = symbol.toUpperCase().replace(/^T/, "");
+  const base = baseCurrency(symbol);
+
+  if (upper.endsWith("USDT")) return normalizeSymbol(symbol, "UST");
+  if (upper.endsWith("UST")) return normalizeSymbol(symbol, "UST");
+
+  const quote = preferredQuote(portfolio, exchangeId);
+  return `t${base}${quote}`;
+}
+
+function displaySymbol(resolved: string): string {
+  return resolved.replace(/^t/i, "");
+}
+
+function resolveTrades(
+  trades: ProposedTrade[],
+  portfolio: Awaited<ReturnType<typeof getLatestPortfolio>>,
+): ProposedTrade[] {
+  return trades.map((trade) => {
+    const resolved = resolveBitfinexSymbol(trade.symbol, portfolio, trade.exchangeId);
+    return { ...trade, symbol: displaySymbol(resolved) };
+  });
+}
+
+function formatBitfinexError(message: string): string {
+  if (message.includes("compliance: restricted (unverified)")) {
+    return (
+      "Bitfinex rejected the order: compliance restriction (unverified). " +
+      "Wire-USD pairs (tBTCUSD, tETHUSD) often require higher verification than UST pairs. " +
+      "If your balance is in UST, use BTCUST/ETHUST instead. " +
+      "Check Manage Account → Verification on Bitfinex."
+    );
+  }
+  return message;
+}
+
+export async function validateTrades(trades: ProposedTrade[]): Promise<ProposedTrade[]> {
   if (trades.length === 0) throw new Error("At least one trade required");
   if (trades.length > MAX_TRADES_PER_PROPOSAL) {
     throw new Error(`Maximum ${MAX_TRADES_PER_PROPOSAL} trades per proposal`);
   }
 
   const portfolio = await getLatestPortfolio();
+  const resolvedTrades = resolveTrades(trades, portfolio);
   const maxUsd = maxUsdPerOrder();
 
-  for (const trade of trades) {
+  for (const trade of resolvedTrades) {
     if (!trade.exchangeId || !trade.symbol || !trade.side) {
       throw new Error("Each trade needs exchangeId, symbol, and side");
     }
@@ -92,6 +163,18 @@ export async function validateTrades(trades: ProposedTrade[]): Promise<void> {
       );
     }
 
+    const quote = quoteCurrency(trade.symbol);
+    const notionalQuote = notional;
+
+    if (trade.side === "buy") {
+      const availableQuote = quoteBalance(portfolio, trade.exchangeId, quote);
+      if (notionalQuote > availableQuote * 1.001) {
+        throw new Error(
+          `Insufficient ${quote} on ${exchange.label}: need ~${notionalQuote.toFixed(2)}, have ~${availableQuote.toFixed(2)}`,
+        );
+      }
+    }
+
     if (trade.side === "sell") {
       const holding = portfolio.wallets.find(
         (w) => w.exchangeId === trade.exchangeId && w.currency === currency,
@@ -104,6 +187,8 @@ export async function validateTrades(trades: ProposedTrade[]): Promise<void> {
       }
     }
   }
+
+  return resolvedTrades;
 }
 
 export async function createProposal(
@@ -112,13 +197,13 @@ export async function createProposal(
   trades: ProposedTrade[],
   targetAllocation?: Record<string, number>,
 ): Promise<TradeProposal> {
-  await validateTrades(trades);
+  const resolvedTrades = await validateTrades(trades);
 
   const proposal: TradeProposal = {
     id: crypto.randomUUID(),
     clientId,
     summary,
-    trades,
+    trades: resolvedTrades,
     targetAllocation,
     createdAt: Date.now(),
     expiresAt: Date.now() + PROPOSAL_TTL_MS,
@@ -148,7 +233,10 @@ export async function executeProposal(
   const results: TradeExecutionResult[] = [];
   const syncedExchanges = new Set<string>();
 
-  for (const trade of proposal.trades) {
+  const portfolio = await getLatestPortfolio();
+  const resolvedTrades = resolveTrades(proposal.trades, portfolio);
+
+  for (const trade of resolvedTrades) {
     try {
       const [exchange] = await db
         .select()
@@ -160,7 +248,7 @@ export async function executeProposal(
 
       const apiKey = await decrypt(exchange.apiKeyEncrypted);
       const apiSecret = await decrypt(exchange.apiSecretEncrypted);
-      const symbol = normalizeSymbol(trade.symbol);
+      const symbol = resolveBitfinexSymbol(trade.symbol, portfolio, trade.exchangeId);
       const signedAmount = trade.side === "buy" ? trade.amount : -trade.amount;
 
       const result = await submitOrder(apiKey, apiSecret, {
@@ -173,10 +261,11 @@ export async function executeProposal(
       syncedExchanges.add(trade.exchangeId);
       results.push({ trade, success: true, result });
     } catch (err) {
+      const raw = err instanceof Error ? err.message : "Execution failed";
       results.push({
         trade,
         success: false,
-        error: err instanceof Error ? err.message : "Execution failed",
+        error: formatBitfinexError(raw),
       });
     }
   }
@@ -190,6 +279,6 @@ export async function executeProposal(
   }
 
   proposals.delete(proposalId);
-  const portfolio = await getLatestPortfolio();
-  return { results, portfolio };
+  const updatedPortfolio = await getLatestPortfolio();
+  return { results, portfolio: updatedPortfolio };
 }

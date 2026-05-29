@@ -3,6 +3,8 @@ import { balanceSnapshots, exchanges, portfolioSnapshots } from "../db/schema";
 import { decrypt } from "./crypto";
 import { fetchWallets as fetchBitfinexWallets, fetchTickers } from "./bitfinex";
 import { fetchWallets as fetchHyperliquidWallets } from "./hyperliquid";
+import { applyLivePrices, getMarketPrices } from "./market";
+import { getStreamedPrices } from "./market-stream";
 import { eq, desc, gte, and } from "drizzle-orm";
 
 export interface WalletBalance {
@@ -22,6 +24,7 @@ export interface PortfolioSummary {
   byCurrency: Record<string, { balance: number; usdValue: number }>;
   byExchange: Record<string, { usdValue: number; walletCount: number }>;
   lastUpdated: string | null;
+  pricesAsOf: string | null;
 }
 
 interface NormalizedWallet {
@@ -69,6 +72,106 @@ async function fetchExchangeWallets(
   }
 
   throw new Error(`Unsupported exchange type: ${exchange.type}`);
+}
+
+export async function applyExchangeWallets(
+  exchangeId: string,
+  rawWallets: NormalizedWallet[],
+): Promise<WalletBalance[]> {
+  const [exchange] = await db.select().from(exchanges).where(eq(exchanges.id, exchangeId));
+  if (!exchange) throw new Error("Exchange not found");
+
+  const capturedAt = new Date();
+  const results: WalletBalance[] = [];
+  const active = rawWallets.filter((w) => Math.abs(w.balance) > 1e-10);
+
+  const streamed = getStreamedPrices();
+  const missing = active
+    .map((w) => w.currency)
+    .filter((c) => !streamed.has(c) && c !== "USD" && c !== "USDC" && c !== "USDT");
+  const market =
+    missing.length > 0
+      ? await getMarketPrices([...new Set(missing)])
+      : { prices: Object.fromEntries(streamed) };
+
+  for (const wallet of active) {
+    const usdValue =
+      wallet.usdValue ??
+      wallet.balance *
+        (market.prices[wallet.currency] ??
+          (wallet.currency === "USD" || wallet.currency === "USDC" || wallet.currency === "USDT"
+            ? 1
+            : 0));
+
+    await db.insert(balanceSnapshots).values({
+      id: id(),
+      exchangeId: exchange.id,
+      walletType: wallet.type,
+      currency: wallet.currency,
+      balance: wallet.balance,
+      availableBalance: wallet.availableBalance,
+      usdValue,
+      capturedAt,
+    });
+
+    results.push({
+      exchangeId: exchange.id,
+      exchangeLabel: exchange.label,
+      exchangeType: exchange.type,
+      walletType: wallet.type,
+      currency: wallet.currency,
+      balance: wallet.balance,
+      availableBalance: wallet.availableBalance,
+      usdValue,
+    });
+  }
+
+  await db
+    .update(exchanges)
+    .set({ lastSyncedAt: capturedAt })
+    .where(eq(exchanges.id, exchangeId));
+
+  return results;
+}
+
+async function getStoredWalletsForAllExchanges(): Promise<WalletBalance[]> {
+  const allExchanges = await db.select().from(exchanges).where(eq(exchanges.isActive, true));
+  const wallets: WalletBalance[] = [];
+
+  for (const exchange of allExchanges) {
+    const latest = await db
+      .select()
+      .from(balanceSnapshots)
+      .where(eq(balanceSnapshots.exchangeId, exchange.id))
+      .orderBy(desc(balanceSnapshots.capturedAt))
+      .limit(100);
+
+    if (latest.length === 0) continue;
+
+    const latestTime = latest[0].capturedAt.getTime();
+    const exchangeLatest = latest.filter((s) => s.capturedAt.getTime() === latestTime);
+
+    for (const snap of exchangeLatest) {
+      wallets.push({
+        exchangeId: exchange.id,
+        exchangeLabel: exchange.label,
+        exchangeType: exchange.type,
+        walletType: snap.walletType,
+        currency: snap.currency,
+        balance: snap.balance,
+        availableBalance: snap.availableBalance,
+        usdValue: snap.usdValue ?? 0,
+      });
+    }
+  }
+
+  return wallets;
+}
+
+async function refreshPortfolioSnapshot(capturedAt: Date) {
+  const wallets = await getStoredWalletsForAllExchanges();
+  if (wallets.length === 0) return;
+  await capturePortfolioSnapshot(wallets, capturedAt);
 }
 
 export async function syncExchange(exchangeId: string): Promise<WalletBalance[]> {
@@ -122,7 +225,7 @@ export async function syncExchange(exchangeId: string): Promise<WalletBalance[]>
     .set({ lastSyncedAt: capturedAt })
     .where(eq(exchanges.id, exchangeId));
 
-  await capturePortfolioSnapshot(results, capturedAt);
+  await refreshPortfolioSnapshot(capturedAt);
 
   return results;
 }
@@ -172,6 +275,7 @@ export async function getLatestPortfolio(): Promise<PortfolioSummary> {
       byCurrency: {},
       byExchange: {},
       lastUpdated: null,
+      pricesAsOf: null,
     };
   }
 
@@ -211,12 +315,27 @@ export async function getLatestPortfolio(): Promise<PortfolioSummary> {
     }
   }
 
+  const symbols = [...new Set(wallets.map((w) => w.currency))];
+  let pricedWallets = wallets;
+  let pricesAsOf: string | null = null;
+
+  if (symbols.length > 0) {
+    try {
+      const { prices, fetchedAt } = await getMarketPrices(symbols);
+      pricedWallets = applyLivePrices(wallets, prices);
+      pricesAsOf = fetchedAt;
+    } catch {
+      // keep snapshot USD values if live prices fail
+    }
+  }
+
   return {
-    totalUsdValue: wallets.reduce((s, w) => s + w.usdValue, 0),
-    wallets,
-    byCurrency: aggregateByCurrency(wallets),
-    byExchange: aggregateByExchange(wallets),
+    totalUsdValue: pricedWallets.reduce((s, w) => s + w.usdValue, 0),
+    wallets: pricedWallets,
+    byCurrency: aggregateByCurrency(pricedWallets),
+    byExchange: aggregateByExchange(pricedWallets),
     lastUpdated: lastUpdated?.toISOString() ?? null,
+    pricesAsOf,
   };
 }
 
@@ -230,10 +349,43 @@ export async function getPortfolioHistory(days = 30) {
     .where(gte(portfolioSnapshots.capturedAt, since))
     .orderBy(portfolioSnapshots.capturedAt);
 
-  return snapshots.map((s) => ({
+  return aggregateSnapshotsByDay(snapshots).map((s) => ({
     date: s.capturedAt.toISOString(),
     totalUsdValue: s.totalUsdValue,
     breakdown: JSON.parse(s.breakdown) as Record<string, unknown>,
+  }));
+}
+
+/** Last snapshot per calendar day — avoids noisy intraday WS/sync points in charts. */
+export function aggregateSnapshotsByDay(
+  snapshots: { totalUsdValue: number; breakdown: string; capturedAt: Date }[],
+) {
+  const byDay = new Map<string, { totalUsdValue: number; breakdown: string; capturedAt: Date }>();
+
+  for (const snap of snapshots) {
+    const day = snap.capturedAt.toISOString().slice(0, 10);
+    const existing = byDay.get(day);
+    if (!existing || snap.capturedAt > existing.capturedAt) {
+      byDay.set(day, snap);
+    }
+  }
+
+  return [...byDay.values()].sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
+}
+
+export async function getDailyPortfolioValues(days = 30) {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const snapshots = await db
+    .select()
+    .from(portfolioSnapshots)
+    .where(gte(portfolioSnapshots.capturedAt, since))
+    .orderBy(portfolioSnapshots.capturedAt);
+
+  return aggregateSnapshotsByDay(snapshots).map((s) => ({
+    date: s.capturedAt.toISOString().slice(0, 10),
+    totalUsdValue: s.totalUsdValue,
   }));
 }
 
