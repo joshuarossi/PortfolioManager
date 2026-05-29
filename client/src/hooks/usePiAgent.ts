@@ -36,10 +36,21 @@ type ServerMessage =
 
 const CLIENT_ID_KEY = "portfolio-manager-client-id";
 
+function randomId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const n = (Math.random() * 16) | 0;
+    const v = char === "x" ? n : (n & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 function getClientId(): string {
   let id = localStorage.getItem(CLIENT_ID_KEY);
   if (!id) {
-    id = `user_${crypto.randomUUID().slice(0, 8)}`;
+    id = `user_${randomId().slice(0, 8)}`;
     localStorage.setItem(CLIENT_ID_KEY, id);
   }
   return id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
@@ -168,7 +179,7 @@ export function usePiAgent(options: PiAgentOptions = {}) {
       if (message.type === "error") {
         setMessages((current) => [
           ...current,
-          { id: crypto.randomUUID(), role: "system", text: message.message },
+          { id: randomId(), role: "system", text: message.message },
         ]);
         return;
       }
@@ -176,7 +187,7 @@ export function usePiAgent(options: PiAgentOptions = {}) {
       const event = message.event;
       switch (event.type) {
         case "agent_start":
-          assistantIdRef.current = crypto.randomUUID();
+          assistantIdRef.current = randomId();
           setIsStreaming(true);
           setStreamingMessageId(null);
           setStatus("Thinking…");
@@ -185,7 +196,7 @@ export function usePiAgent(options: PiAgentOptions = {}) {
         case "message_update":
           if (event.assistantMessageEvent?.type === "text_delta") {
             const delta = event.assistantMessageEvent.delta ?? "";
-            const streamId = assistantIdRef.current ?? crypto.randomUUID();
+            const streamId = assistantIdRef.current ?? randomId();
             assistantIdRef.current = streamId;
             setStreamingMessageId(streamId);
             setMessages((current) => {
@@ -252,7 +263,7 @@ export function usePiAgent(options: PiAgentOptions = {}) {
 
       setMessages((current) => [
         ...current,
-        { id: crypto.randomUUID(), role: "user", text: trimmed },
+        { id: randomId(), role: "user", text: trimmed },
       ]);
 
       wsRef.current.send(

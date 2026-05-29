@@ -70,6 +70,8 @@ Open **[http://localhost:5173](http://localhost:5173)**.
 
 The Vite dev server proxies `/api` (including WebSocket `/api/agent`) to the Bun backend.
 
+**LAN access (dev):** With `bun run dev`, Vite listens on all interfaces. From another device on the same network, open `http://<your-mac-lan-ip>:5173` (prefer the IP over `.local` hostnames). Allow incoming connections for Bun/Node in macOS Firewall if prompted.
+
 ### Production build
 
 ```bash
