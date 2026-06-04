@@ -39,27 +39,6 @@ export const portfolioSnapshots = sqliteTable("portfolio_snapshots", {
     .$defaultFn(() => new Date()),
 });
 
-export const aiConversations = sqliteTable("ai_conversations", {
-  id: text("id").primaryKey(),
-  title: text("title").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-});
-
-export const aiMessages = sqliteTable("ai_messages", {
-  id: text("id").primaryKey(),
-  conversationId: text("conversation_id")
-    .notNull()
-    .references(() => aiConversations.id, { onDelete: "cascade" }),
-  role: text("role").notNull(), // user | assistant
-  content: text("content").notNull(),
-  metadata: text("metadata"), // JSON
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-});
-
 export type Exchange = typeof exchanges.$inferSelect;
 export type BalanceSnapshot = typeof balanceSnapshots.$inferSelect;
 export type PortfolioSnapshot = typeof portfolioSnapshots.$inferSelect;

@@ -249,7 +249,8 @@ PortfolioManager/
 | `exchanges` | Connected accounts (Bitfinex keys encrypted, HL wallet address) |
 | `balance_snapshots` | Per-wallet balance history |
 | `portfolio_snapshots` | Aggregate USD value + JSON breakdown over time |
-| `ai_conversations` / `ai_messages` | Legacy REST chat schema (unused by WebSocket agent) |
+
+Pi assistant chat history is stored on disk under `server/.portfolio-manager/sessions/{clientId}/` (not SQLite).
 
 ### Exchange adapters
 

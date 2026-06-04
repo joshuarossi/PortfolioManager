@@ -15,6 +15,13 @@
       "when": 1779934397359,
       "tag": "0001_serious_mongu",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1780527767777,
+      "tag": "0002_massive_amazoness",
+      "breakpoints": true
     }
   ]
 }

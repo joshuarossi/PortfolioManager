@@ -54,12 +54,6 @@ export interface AiInsight {
   suggestion?: string;
 }
 
-export interface AiStatus {
-  available: boolean;
-  model: string | null;
-  providers: string[];
-}
-
 export interface MarketQuote {
   last: number;
   bid: number;
@@ -164,7 +158,6 @@ export const api = {
     request<{ success: boolean }>(`/api/exchanges/${id}`, { method: "DELETE" }),
 
   getInsights: () => request<AiInsight[]>("/api/ai/insights"),
-  getAiStatus: () => request<AiStatus>("/api/ai/status"),
   getMarketPrices: (symbols?: string[]) =>
     request<MarketPricesResult>(
       symbols?.length

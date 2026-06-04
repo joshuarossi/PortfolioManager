@@ -187,9 +187,8 @@ Bitfinex order amounts: positive = buy, negative = sell (see `bitfinex.submitOrd
 - `exchanges` — nullable `api_key_encrypted` / `api_secret_encrypted` for Bitfinex; `wallet_address` for Hyperliquid
 - `balance_snapshots` — time-series per wallet/currency
 - `portfolio_snapshots` — aggregate USD + JSON breakdown
-- `ai_conversations` / `ai_messages` — legacy; WebSocket agent uses pi session files instead
 
-Deleting an exchange cascades to its balance snapshots.
+Deleting an exchange cascades to its balance snapshots. Pi chat history lives under `.portfolio-manager/sessions/{clientId}/` (not SQLite).
 
 ---
 
@@ -200,7 +199,7 @@ Deleting an exchange cascades to its balance snapshots.
 | `PORT`, `DATABASE_URL` | `server/src/index.ts`, `server/src/db/index.ts` |
 | `ENCRYPTION_KEY` | `server/src/services/crypto.ts` |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` | `server/src/agent/ws-handler.ts` → pi AuthStorage |
-| `PI_MODEL` | pi model override (if wired in pi-assistant.ts / registry) |
+| `PI_MODEL` | Model override for `/api/ai/status` (`pi-status.ts`); WebSocket agent restores model from session or pi defaults |
 | `TRADE_MAX_USD_PER_ORDER` | `server/src/services/trading.ts` |
 
 Never log or commit secrets. Warn users if they try to commit `.env`.

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getInsights } from "../services/ai";
-import { getPiAssistantStatus } from "../services/pi-assistant";
+import { getPiAssistantStatus } from "../services/pi-status";
 
 const app = new Hono();
 
